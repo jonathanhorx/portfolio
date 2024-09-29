@@ -1,0 +1,630 @@
+---
+title: "Customer Churn Analysis"
+subtitle: "Jonathan Ho"
+output:
+  pdf_document: default
+header-includes:
+   - \usepackage{dcolumn, mathtools, amssymb, amsthm}  
+date: "2024-09-01"
+---
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+library(tidyverse)
+```
+\newpage
+\section{Customer Churn Study: Part-1}
+\subsection{1.1 Data Preprocessing}
+```{r Data Preprocessing, echo = TRUE, warning = FALSE, message = FALSE}
+# Import data
+telcom_churn <- read_csv("Telco_Customer_Churn.csv")
+
+# Check data types for customerID, Churn and SeniorCitizen columns
+str(telcom_churn[c('customerID','Churn', 'SeniorCitizen')])
+
+# Look at unique values for Churn and SeniorCitizen columns
+print('unique values for Churn and SeniorCitizen columns')
+unique(telcom_churn$Churn)
+unique(telcom_churn$SeniorCitizen)
+
+# Change datatypes for Churn and SeniorCitizen columns to factors
+telcom_churn$Churn <- as.factor(telcom_churn$Churn)
+telcom_churn$SeniorCitizen <- as.factor(telcom_churn$SeniorCitizen)
+
+# Check data types again for Churn and SeniorCitizen columns
+str(telcom_churn[c('Churn', 'SeniorCitizen')])
+
+# Check for missing values
+colSums(is.na(telcom_churn)) # There are no missing values for customerID, Churn and SeniorCitizen. We are good to proceed with the analysis
+```
+The datatypes for Churn and SeniorCitizen were changed to factors. There were also no missing values for columns customerID, Churn and SeniorCitizen. We thus proceed with the analysis.
+\newpage
+\subsection{1.2 Probability of customer churn}
+```{r Probability of customer churn, echo = TRUE, warning = FALSE, message = FALSE}
+# Probability of customer churn
+pi_hat <- mean(telcom_churn$Churn == "Yes")
+pi_hat
+
+# Total number of customers
+n <- nrow(telcom_churn)
+
+# Critical value for 95% confidence
+Z <- qnorm(p = 1-0.05/2, mean = 0, sd = 1)
+
+# Lower bound
+lower_bound <- pi_hat - Z*sqrt((pi_hat*(1-pi_hat))/(n+Z^2))
+upper_bound <- pi_hat + Z*sqrt((pi_hat*(1-pi_hat))/(n+Z^2))
+
+agresti_coull_ci <- c(lower_bound, upper_bound)
+agresti_coull_ci
+```
+
+The probability of a customer churning, $\hat{\pi}$, is $0.265$ (3 s.f.). The confidence interval is $(0.255 , 0.276)$. This means that we are 95% confident that the true probability of a customer churning lies between 25.5% and 27.6%. Since the confidence interval does not include zero, we can say that $\hat{\pi}$ is statistically different from zero.
+\newpage
+\subsection{1.3 Comparison between senior and non-senior customers}
+```{r Comparison senior and non-senior, echo = TRUE, warning = FALSE, message = FALSE}
+library(ggplot2)
+
+senior_compare_plot <- ggplot(data = telcom_churn, aes(x = SeniorCitizen, fill = Churn)) +
+  geom_bar(position = 'fill') + 
+  labs(title = 'Senior citizens seem more likely to churn', x = 'Senior Citizen Status', 
+       y = 'Percentage', fill = 'Churn') +   
+  scale_x_discrete(labels = c("Non-Senior", "Senior")) + 
+  scale_y_continuous(labels = scales::percent) +
+  theme_minimal()
+
+senior_compare_plot
+```
+
+As seen in the plot, a larger proportion of senior citizens churn.
+\newpage
+\subsection{1.4 Contingency table}
+```{r Contingency table,results= "asis", echo = TRUE, warning = FALSE, message = FALSE}
+library(tidyverse)
+library(stargazer)
+contingency_table <- table(telcom_churn$SeniorCitizen, telcom_churn$Churn)
+churn_probabilities <- prop.table(contingency_table, margin = 1)
+
+# Convert the contingency table and churn probabilities to data frames for stargazer
+contingency_df <- as.data.frame.matrix(contingency_table)
+churn_probabilities_df <- as.data.frame.matrix(churn_probabilities)
+
+# Set the row names for the data frames
+rownames(contingency_df) <- c("Non-Senior", "Senior")
+rownames(churn_probabilities_df) <- c("Non-Senior", "Senior")
+
+# Rename the columns from "No" and "Yes" to "No Churn" and "Churn"
+colnames(contingency_df) <- c("No Churn", "Churn")
+colnames(churn_probabilities_df) <- c("No Churn", "Churn")
+
+# Use stargazer to display the contingency table with row names on the left
+stargazer(contingency_df, type = "latex", summary = FALSE,
+          title = "Contingency Table: Senior Citizen vs Churn", 
+          rownames = TRUE, 
+          header = FALSE)
+
+# Use stargazer to display the churn probabilities table with row names on the left
+stargazer(churn_probabilities_df, type = "latex", summary = FALSE,
+          title = "Churn Probabilities: Senior Citizen vs Churn", 
+          rownames = TRUE, 
+          header = FALSE)
+```
+
+The probabilities do seem quite different, with Seniors about twice as likely to churn than Non-Seniors.
+\newpage
+\subsection{1.5 Confidence intervals for the difference of two probabilities}
+```{r Confidence intervals, echo = TRUE, warning = FALSE, message = FALSE}
+
+n1 <- sum(contingency_table['1', ])  # Senior (row '1')
+n2 <- sum(contingency_table['0', ])  # Non-Senior (row '0')
+pi1_hat <- churn_probabilities['1', 'Yes']  # Proportion of seniors who churned
+pi2_hat <- churn_probabilities['0', 'Yes']  # Proportion of non-seniors who churned
+
+difference <- pi1_hat - pi2_hat
+
+difference_wald_lower_bound <- difference - 
+  Z*sqrt((pi1_hat*(1-pi1_hat))/n1 + (pi2_hat*(1-pi2_hat))/n2)
+
+difference_wald_upper_bound <- difference + 
+  Z*sqrt((pi1_hat*(1-pi1_hat))/n1 + (pi2_hat*(1-pi2_hat))/n2)
+
+difference_agrestic_lower_bound <- difference - 
+  Z*sqrt((pi1_hat*(1-pi1_hat))/(n1+2) + (pi2_hat*(1-pi2_hat))/(n2+2))
+
+difference_agrestic_upper_bound <- difference + 
+  Z*sqrt((pi1_hat*(1-pi1_hat))/(n1+2) + (pi2_hat*(1-pi2_hat))/(n2+2))
+
+# Calculating Wald CI for difference
+difference_wald_ci <- c(difference_wald_lower_bound, difference_wald_upper_bound)
+
+# Calculating Agresti-Caffo CI for difference
+difference_agresti_ci <- c(difference_agrestic_lower_bound, 
+                           difference_agrestic_upper_bound)
+difference_wald_ci
+difference_agresti_ci
+
+```
+The Wald confidence interval for $\hat{\pi_1} - \hat{\pi_2}$ is (0.1501720, 0.2113298). Zero is not within this interval, indicating that we can state with 95% confidence that seniors are more likely than non-seniors to churn.
+
+The Agresti-Caffo confidence interval for $\hat{\pi_1} - \hat{\pi_2}$ is (0.1501961, 0.2113058). Zero is also not within this interval, indicating that we can state with 95% confidence that seniors are more likely than non-seniors to churn.
+
+Both methods yielded similar confidence intervals, and the same conclusion that seniors are more likely than non-seniors to churn.
+\newpage
+\subsection{1.6 Test for the difference of two probabilities}
+
+```{r, echo = TRUE}
+
+n_plus <- n1 + n2
+w_plus <- sum(contingency_table[, 'Yes'])
+pi_bar <- w_plus / n_plus
+
+# Calculate Z0 and p-value
+Z0 <- (pi1_hat - pi2_hat) / sqrt(pi_bar * (1 - pi_bar) * ((1/n1) + (1/n2)))
+p_value <- 2 * (1 - pnorm(abs(Z0)))
+
+```
+
+Using the Two-Sample Z-Test for Proportions, the Z-statistic $Z_0$ is $12.66302$, with a p-value of $0$ $(< 0.05)$. Thus the difference in probabilities is highly significant.
+\newpage
+\subsection{1.7 Relative risks}
+
+```{r Relative risks, echo = TRUE, warning = FALSE, message = FALSE}
+# Calculate relative risk
+rr <- pi1_hat/pi2_hat
+# Calculate log relative risk
+log_rr <- log(rr)
+
+w1 <- sum(contingency_table['1', 'Yes' ])  # Senior who churned (row '1')
+w2 <- sum(contingency_table['0', 'Yes'])  # Non-Senior who churned (row '0')
+
+# Calculate variance of log of relative risk
+var_log_rr <- 1/w1 - 1/n1 +1/w2 - 1/n2 
+
+# Calculating Wald confidence interval for relative risk
+rr_wald_ci_lower_bound <- exp(log_rr - Z*sqrt(var_log_rr))
+rr_wald_ci_upper_bound <- exp(log_rr + Z*sqrt(var_log_rr))
+rr_wald_ci <- c(rr_wald_ci_lower_bound,rr_wald_ci_upper_bound)
+rr
+rr_wald_ci
+```
+
+The probability of churning is 1.77 times as large for seniors than for non-seniors, with a 95% confidence interval ranging from 1.63 to 1.92. This is consistent with the findings in the previous sections, that seniors are more likely to churn than non-seniors.
+\newpage
+\subsection{1.8 Odds ratios}
+
+```{r Odds ratios, echo = TRUE, warning = FALSE, message = FALSE}
+# Calculating odds of senior churning
+odds_senior_churn <- pi1_hat/(1 - pi1_hat)
+# Calculating odds of non-senior churning
+odds_non_senior_churn <- pi2_hat/(1 - pi2_hat)
+
+#Calculating odds ratio, and log of odds ratio
+odds_ratio <- odds_senior_churn/odds_non_senior_churn
+log_odds_ratio <- log(odds_ratio)
+
+# Calculating confidence interval for odds ratio
+odds_ratio_ci_lower_bound <- exp(log_odds_ratio - Z*sqrt(1/w1+1/(n1-w1)+1/w2+1/(n2-w2)))
+odds_ratio_ci_upper_bound <- exp(log_odds_ratio + Z*sqrt(1/w1+1/(n1-w1)+1/w2+1/(n2-w2)))
+odds_ratio_ci <- c(odds_ratio_ci_lower_bound, odds_ratio_ci_upper_bound)
+odds_ratio
+odds_ratio_ci
+```
+
+The odds of a senior customer churning is $0.715$ (3 s.f.), which is higher than the odds of a non-senior customer churning, which is $0.309$ (3.s.f.).
+
+The odds ratio is 2.31 (3 s.f.), with a 95% confidence interval of (2.03, 2.64) (3.s.f.). This means that the estimated odds of a customer churning is 2.31 times as large in the seniors group than in the non-seniors group, and we are 95% confident that the true odds ratio is between 2.03 and 2.64.
+
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+#install.packages("mcprofile")
+library(mcprofile)
+```
+\section{Customer Churn Study: Part-2}
+\subsection{2.1 Data Preprocessing}
+```{r Data Preprocessing, echo = TRUE, warning = FALSE, message = FALSE}
+# Import data
+telcom_churn <- read_csv("Telco_Customer_Churn.csv")
+
+# Check data types for customerID, Churn, tenure, MonthlyCharges, and TotalCharges columns
+str(telcom_churn[c('customerID','Churn', 'tenure', 'MonthlyCharges','TotalCharges')])
+table(telcom_churn$Churn)
+# Change datatypes for Churn to numeric. 0 for No, 1 for Yes
+telcom_churn$Churn <- ifelse(telcom_churn$Churn == "Yes", 1, 0)
+
+# Check for missing values
+colSums(is.na(telcom_churn))
+# We have missing values for TotalCharges. Upon inspection, it is because these rows 
+# have '0' tenure. 
+# We will thus changes these missing values to 0.
+
+telcom_churn$TotalCharges[is.na(telcom_churn$TotalCharges)] <- 0
+
+# Check for missing values again
+colSums(is.na(telcom_churn)) #No more missing values. We are good to proceed with analysis.
+
+# Check data types again
+str(telcom_churn[c('customerID','Churn', 'tenure', 'MonthlyCharges','TotalCharges')])
+
+```
+The datatypes for Churn was changed to numeric; 0 for No, 1 for Yes. There were missing values for TotalCharges. Upon inspection, it is because these rows have '0' tenure; these customers were not on the service for long enough to have a TotalCharge. We will thus changes these missing values of TotalCharges to 0, and proceed with the analysis.
+
+\newpage
+\subsection{2.2 Maximum Likelihood}
+```{=tex}
+\begin{align*}
+\pi_i &= \frac{e^{\alpha+\beta \times \text{Tenure}_i}}{1 + e^{\alpha+\beta \times \text{Tenure}_i}} \\
+L(\alpha,\beta) &= \prod_{i = 1}^{n} \pi_i^{y_i}\left(1-\pi_i\right)^{1-y_i} \\
+\end{align*}
+\text{Thus,} \\
+\begin{align*}
+L(\alpha,\beta \mid \text{Data}) &= \prod_{i = 1}^{n} \left(\frac{e^{\alpha+\beta \times \text{Tenure}_i}}{1 + e^{\alpha+\beta \times \text{Tenure}_i}}\right)^{y_i} \left(1-\frac{e^{\alpha+\beta \times \text{Tenure}_i}}{1 + e^{\alpha+\beta \times \text{Tenure}_i}}\right)^{1-y_i} \\
+&= \prod_{i = 1}^{n} \left(\frac{e^{\alpha+\beta \times \text{Tenure}_i}}{1 + e^{\alpha+\beta \times \text{Tenure}_i}}\right)^{y_i} \left(\frac{1}{1 + e^{\alpha+\beta \times \text{Tenure}_i}}\right)^{1-y_i} \\
+&= \prod_{i = 1}^{n}\left(\frac{e^{y_i(\alpha+\beta \times \text{Tenure}_i)}}{1 + e^{\alpha+\beta \times \text{Tenure}_i}}\right)
+\end{align*}
+```
+
+\newpage
+\subsection{2.3 Write and compute the log-likelihood}
+
+```{=tex}
+\begin{align*}
+-\log{(L(\alpha,\beta \mid \text{Data}))} &= -\log{\left(\prod_{i = 1}^{n} \pi_i^{y_i}\left(1-\pi_i\right)^{1-y_i}\right)} \\
+&= -\sum_{i = 1}^{n} \left( y_i\log{\pi_i} + (1 - y_i)\log{(1-\pi_i)} \right) \\
+&= -\sum_{i = 1}^{n} \left( y_i\log{\left(\frac{e^{\alpha+\beta \times \text{Tenure}_i}}{1 + e^{\alpha+\beta \times \text{Tenure}_i}}\right)} + (1 - y_i)\log{\left(1-\frac{e^{\alpha+\beta \times \text{Tenure}_i}}{1 + e^{\alpha+\beta \times \text{Tenure}_i}}\right)} \right) \\
+&= -\sum_{i = 1}^{n} \left( y_i\log{\left(\frac{e^{\alpha+\beta \times \text{Tenure}_i}}{1 + e^{\alpha+\beta \times \text{Tenure}_i}}\right)} + (1 - y_i)\log{\left(\frac{1}{1 + e^{\alpha+\beta \times \text{Tenure}_i}}\right)} \right) \\
+&= -\sum_{i = 1}^{n} \left(y_i(\log{e^{\alpha+\beta \times \text{Tenure}_i}} - \log{(1 + e^{\alpha+\beta \times \text{Tenure}_i}))}+\log[(1 + e^{\alpha+\beta \times \text{Tenure}_i})^{-1}] \right. \\ 
+& \left. \quad - y_i\log{[(1+e^{\alpha+\beta \times \text{Tenure}_i})^{-1}]}\right) \\
+&= -\sum_{i = 1}^{n}\left(y_i(\alpha+\beta \times \text{Tenure}_i) -\log(1 + e^{\alpha+\beta \times \text{Tenure}_i})\right) 
+\end{align*}
+```
+
+```{r log-likelihood}
+# Create function for negative log-likelihood
+neg_log_likelihood <- function(parameters, tenure, churn) {
+  alpha <- parameters[1]
+  beta <- parameters[2]
+  
+  pi_i <- exp(alpha + beta*tenure)/(1+exp(alpha + beta*tenure))
+  
+  log_likelihood <- sum(churn * log(pi_i) + (1- churn)*log(1- pi_i))
+  
+  return(-log_likelihood)
+}
+```
+
+
+\newpage
+\subsection{2.4 Compute the MLE of parameters}
+
+```{r optim, echo = TRUE, warning = FALSE, message = FALSE}
+# Use optim() function to find lowest possible value of negative log-likelihood
+initial_values <- c(0,0)
+result <- optim(
+  par = initial_values,
+  fn = neg_log_likelihood,
+  tenure = telcom_churn$tenure,
+  churn = telcom_churn$Churn,
+)
+
+print(result$par)
+```
+
+Thus, the values of the parameters for our MLE model are $\alpha = 0.02731012$ and $\beta = -0.03877087$.
+
+\newpage
+\subsection{2.5 Calculate a confidence interval}
+
+```{r confidence interval, echo = TRUE, warning = FALSE, message = FALSE}
+# Running optim again, with hessian matrix this time
+initial_values <- c(0,0)
+result <- optim(
+  par = initial_values,
+  fn = neg_log_likelihood,
+  tenure = telcom_churn$tenure,
+  churn = telcom_churn$Churn,
+  hessian = TRUE
+)
+
+# Extract alpha and betas
+alpha_mle <- result$par[1]
+beta_mle <- result$par[2]
+
+# Find variance of alpha and beta
+cov_matrix <-  solve(result$hessian)
+alpha_var <- cov_matrix[1,1]
+beta_var <- cov_matrix[2,2]
+alpha_var
+beta_var
+
+# Find standard errors of alpha and beta
+alpha_se <- sqrt(alpha_var)
+beta_se <- sqrt(beta_var)
+
+# Create Z variable to store 1.96
+Z <- qnorm(0.975)
+
+# Create confidence intervals for alpha and beta
+alpha_ci <- c(alpha_mle - Z*alpha_se, alpha_mle + Z*alpha_se)
+beta_ci <- c(beta_mle - Z*beta_se, beta_mle + Z*beta_se)
+alpha_ci
+beta_ci
+```
+
+The variance for $\alpha$ is 0.00178225. The 95% confidence interval for $\alpha$ is $(-0.0554331, 0.1100533)$ which includes zero. Thus, $\alpha$ is not statistically different than zero.
+
+The variance for $\beta$ is  1.973791e-06. The 95% confidence interval for $\beta$ is $(-0.04152446, -0.03601728)$ which does not include zero. Thus, $\beta$ is statistically different than zero.
+
+\newpage
+\subsection{2.6 Model comparison}
+```{r Model comparison, echo = TRUE, warning = FALSE, message = FALSE}
+# Use glm to create model with tenure
+logistic_model <- glm(formula = Churn ~ tenure, 
+                      family = binomial(link = "logit"), 
+                      data = telcom_churn)
+
+summary(logistic_model)
+```
+We see that $\alpha$ is 0.027313 (p-value = 0.518), and is not statistically different from zero. This value of $\alpha$is extremely close to our value of 0.02731012 that we obtained from the \texttt{optim()} function, and consistent with the fact that our 95% confidence interval for $\alpha$ included zero.
+
+We also see that $\beta$ is -0.038767 (p-value<2e-16), and is highly statistically significantly different from zero. This is also extremely close to our value of -0.03877087 that we obtained from the \texttt{optim()} function, and is consistent with the fact that our 95% confidence interval for $\beta$ did not include zero.
+
+The results align as both MLE through \texttt{optim()} and logistic regression through \texttt{glm()} are finding the parameters that maximize the log-likelihood of the observed data. MLE through \texttt{optim()} is simply modeling the log-odds of the outcome as a linear model. Slight differences are due to small differences in numerical optimization.
+
+\newpage
+\subsection{2.7 Extended Model, with Linear Effects}
+```{r Extended Model, echo = TRUE, warning = FALSE, message = FALSE}
+# Create extended model with tenure + MonthlyCharges + TotalCharges
+extended_model <- glm(formula = Churn ~ tenure + MonthlyCharges + TotalCharges, 
+                      family = binomial(link = "logit"), 
+                      data = telcom_churn)
+
+summary(extended_model)
+```
+Our extended model is thus $$\text{logit}(P(Churn)) = -0.06636 \times \text{Tenure} + 0.03037 \times \text{MonthlyCharges} + 0.0001384 \times \text{TotalCharges}-1.62$$ with all estimates statistically significant (p-values < 0.05). 
+
+-0.06636 for Tenure's coefficient indicates that for every additional unit of Tenure, the odds of a customer churning decreases by $e^{0.06636}$. This means that longer tenure reduces the likelihood of churn, holding other variables constant.
+
+0.03037 for MonthlyCharges' coefficient indicates that for every additional unit of MonthlyCharges, the odds of a customer churning increases by $e^{0.03037}$ This means that higher MonthlyCharges increases the likelihood of churn, holding other variables constant.
+
+0.0001384 for TotalCharges' coefficient indicates that for every additional unit of TotalCharges, the odds of a customer churning increases by $e^{0.0001384}$ This means that higher TotalCharges increases the likelihood of churn, holding other variables constant.
+
+The intercept -1.62 represents the log-odds of churn when all other independent variables (Tenure, MonthlyCharges, and TotalCharges) are equal to zero. It also indicates that in a hypothetical scenario with zero tenure, monthly charges, and total charges, the baseline probability of churn would be approximately $$\frac{e^{-1.62}}{1+e^{-1.62}} = 0.165 $$, to three significant figures.
+
+
+
+\newpage
+\subsection{2.8 Likelihood Ratio Tests}
+```{r Likelihood Ratio Tests, echo = TRUE, warning = FALSE, message = FALSE}
+# Import car
+library(car)
+
+# Run LR test
+Anova(extended_model, test = "LR")
+```
+We see that the coefficients for all explanatory variables tenure, MonthlyCharges, and TotalCharges are statistically significant (< 0.05), indicating that they are all significant in predicting the probability of churn.
+
+\newpage
+\subsection{2.9 Effect of change in Monthly payments}
+```{r Effect of change in Monthly payments, echo = TRUE, warning = FALSE, message = FALSE}
+# Find standard deviation of MonthlyCharges
+MonthlyCharges_sd <- sd(telcom_churn$MonthlyCharges)
+
+# Extract coefficient of MonthlyCharges from extended_model
+MonthlyCharges_coef <- coef(extended_model)["MonthlyCharges"]
+
+# Find the increase in OR for one SD increase in MonthlyCharges
+OR_SD_increase <- exp(MonthlyCharges_coef * MonthlyCharges_sd)
+MonthlyCharges_sd
+OR_SD_increase
+
+#Find Wald CI
+MonthlyCharges_coef_se <- summary(extended_model)$coefficients["MonthlyCharges", "Std. Error"]
+wald_ci_lower <- exp(MonthlyCharges_sd*MonthlyCharges_coef - 
+                       MonthlyCharges_sd*Z*MonthlyCharges_coef_se)
+wald_ci_upper <- exp(MonthlyCharges_sd*MonthlyCharges_coef + 
+                       MonthlyCharges_sd*Z*MonthlyCharges_coef_se)
+wald_ci <- c(wald_ci_lower,wald_ci_upper)
+wald_ci
+```
+
+The odds of a customer churning increases by 2.49, with a 95% confidence interval of (2.253821, 2.759039) when MonthlyCharges increase by one standard deviation of approximately $30.09. 
+
+\newpage
+\subsection{2.10 Confidence Interval for the Probability of Success}
+```{r Confidence Interval for the Probability of Success, echo = TRUE, warning = FALSE, message = FALSE}
+### First calculate the Wald confidence interval
+
+# Calculate mean values for tenure, MonthlyCharges, and TotalCharges
+tenure_mean <- mean(telcom_churn$tenure)
+MonthlyCharges_mean <- mean(telcom_churn$MonthlyCharges)
+TotalCharges_mean <- mean(telcom_churn$TotalCharges)
+
+# Create a data frame with the average values
+average_values <- data.frame(tenure = tenure_mean,
+                             MonthlyCharges = MonthlyCharges_mean,
+                             TotalCharges = TotalCharges_mean)
+
+# Predict the probability for the mean values (log-odds scale)
+predicted_log_odds <- predict(extended_model, newdata = average_values, type = "link")
+
+# Get the standard error for the log-odds
+predicted_se <- predict(extended_model, newdata = average_values, 
+                        type = "link", se.fit = TRUE)$se.fit
+
+# Calculate the 95% confidence interval for the log-odds
+Z <- qnorm(0.975) # 95% confidence
+lower_log_odds <- predicted_log_odds - Z * predicted_se
+upper_log_odds <- predicted_log_odds + Z * predicted_se
+
+# onvert log-odds to probability using the correct formula
+predicted_prob <- 1 / (1 + exp(-predicted_log_odds))  # Predicted probability
+ci_lower <- 1 / (1 + exp(-lower_log_odds))            # Lower bound probability
+ci_upper <- 1 / (1 + exp(-upper_log_odds))            # Upper bound probability
+
+predicted_prob
+c(ci_lower, ci_upper)
+
+### Use mcprofile package to calculate profile likelihood confidence interval
+K <- matrix(c(1, tenure_mean, MonthlyCharges_mean, TotalCharges_mean), nrow = 1)
+
+# Calculate the profile likelihood for the linear combination
+linear.combo <- mcprofile(object = extended_model, CM = K)
+
+# Get the profile likelihood confidence interval
+ci.logit.profile <- confint(object = linear.combo, level = 0.95)
+
+# Convert the log-odds confidence interval to probability
+prob_ci <- exp(ci.logit.profile$confint) / (1 + exp(ci.logit.profile$confint))
+
+# Print the probability confidence interval
+print(prob_ci)
+```
+
+We first calculate the Wald Confidence Interval to be (0.1722661, 0.1976208). We also used the \texttt{mcprofile} package and calculated the profile likelihood confidence interval to be (0.1720363, 0.1973745). They are extremely similar, and thus we use the profile likelihood confidence interval. We thus conclude that the predicted probability of a customer churning for the mean Tenure, MonthlyCharges and TotalCharges is 0.184607 with a 95% confidence interval of (0.1720363, 0.1973745).
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+library(stargazer)
+library(car)
+```
+\section{Customer Churn Study: Part-3}
+\subsection{3.1 Data Preprocessing}
+```{r Data Preprocessing, echo = TRUE, warning = FALSE, message = FALSE}
+# Import data
+telcom_churn <- read_csv("Telco_Customer_Churn.csv")
+telcom_churn <- as.data.frame(telcom_churn)
+# Check data types for all variables
+str(telcom_churn)
+
+# Change datatypes for Gender, SeniorCitizen, Partner, Dependents, PhoneService,
+# MultipleLInes, InternetService, OnlineSecurity, OnlineBackup, DeviceProtection
+# TechSupport, StreamingTV, StreamingMovies, Contract, PaperlessBilling, PaymentMethod to factors
+
+cols_to_factor <- c('gender', 'SeniorCitizen', 'Partner', 'Dependents', 'PhoneService', 
+                    'MultipleLines', 'InternetService', 'OnlineSecurity', 'OnlineBackup', 
+                    'DeviceProtection', 'TechSupport', 'StreamingTV', 'StreamingMovies', 
+                    'Contract', 'PaperlessBilling', 'PaymentMethod')
+
+telcom_churn[cols_to_factor] <- lapply(telcom_churn[cols_to_factor], as.factor)
+
+# Change datatypes for Churn to numeric. 0 for No, 1 for Yes
+telcom_churn$Churn <- ifelse(telcom_churn$Churn == "Yes", 1, 0)
+
+# Set reference for gender
+telcom_churn$gender<-relevel(telcom_churn$gender, ref="Male")
+
+# Check for missing values
+colSums(is.na(telcom_churn))
+# We have missing values for TotalCharges. Upon inspection, it is because these rows 
+# have '0' tenure. # We will thus changes these missing values to 0.
+
+telcom_churn$TotalCharges[is.na(telcom_churn$TotalCharges)] <- 0
+
+# Check for missing values again
+colSums(is.na(telcom_churn)) #No more missing values. We are good to proceed with analysis.
+
+# Check data types again
+str(telcom_churn)
+
+```
+The datatypes for Gender, SeniorCitizen, Partner, Dependents, PhoneService, MultipleLInes, InternetService, OnlineSecurity, OnlineBackup, DeviceProtection, TechSupport, StreamingTV, StreamingMovies, Contract, PaperlessBilling, and PaymentMethod were change to factor. Churn was changed to numeric; 0 for No, 1 for Yes. There were missing values for TotalCharges. Upon inspection, it is because these rows have '0' tenure; these customers were not on the service for long enough to have a TotalCharge. We will thus changes these missing values of TotalCharges to 0, and proceed with the analysis.
+
+\newpage
+\subsection{3.2 Estimate a logistic regression}
+```{r Estimate a logistic regression, echo = TRUE, warning = FALSE, message = FALSE}
+m1 <- glm(formula = Churn ~ tenure + MonthlyCharges + TotalCharges + SeniorCitizen + 
+            gender, data = telcom_churn, family = binomial(link = "logit"))
+m2 <- glm(formula = Churn ~ tenure + MonthlyCharges + TotalCharges + SeniorCitizen + 
+            gender + I(tenure^2) + I(MonthlyCharges^2) + I(TotalCharges^2), 
+          data = telcom_churn, family = binomial(link = "logit"))
+m3 <- glm(formula = Churn ~ tenure + MonthlyCharges + TotalCharges + SeniorCitizen +
+           gender + I(tenure^2) + I(MonthlyCharges^2) + I(TotalCharges^2) + 
+           SeniorCitizen:tenure+SeniorCitizen:MonthlyCharges+SeniorCitizen:TotalCharges+
+           gender:tenure+gender:MonthlyCharges+gender:TotalCharges, 
+         data = telcom_churn, family = binomial(link = "logit"))
+```
+
+```{r stargazertable, results= "asis", echo = TRUE}
+stargazer(m1, m2, m3,
+          title = "Comparing Logistic Regression Models",
+          align = TRUE,
+          type = "latex",
+          star.cutoffs = c(0.05, 0.01, 0.001),
+          header = FALSE)
+```
+
+\newpage
+\subsection{3.3 Test a hypothesis: linear effects}
+```{r linear effects, echo = TRUE, warning = FALSE, message = FALSE}
+Anova(mod = m1, test = 'LR')
+```
+The variables tenure, MonthlyCharges, TotalCharges, and SeniorCitizen are statistically significant, meaning that there is sufficient evidence indicating that including them in our model helps us better predict the probability of Churn. The variable gender, however, is not statistically significant. This means that there is insufficient evidence indicating that including gender in our model helps us better predict the probability of Churn.
+
+\newpage
+\subsection{3.4 Test a hypothesis: Non linear effect}
+
+```{r Non linear effect m2, echo = TRUE, warning = FALSE, message = FALSE}
+Anova(m2, test = "LR")
+```
+Running the LRT for Model 2, we see that the quadratic terms for tenure and TotalCharges are statistically significant and should be included in our model, even after we have included the linear terms tenure, MonthlyCharges, and TotalCharges. We also note that the quadratic term for MonthlyCharges is not statistically significant after including the linear term MonthlyCharges.
+
+```{r Non linear effect m3, echo = TRUE, warning = FALSE, message = FALSE}
+Anova(m3, test = "LR")
+```
+Running the LRT for Model 3, we see that the quadratic terms for tenure and TotalCharges are still statistically significant and should be included in our model, even after we have included the linear terms tenure, MonthlyCharges, and TotalCharges and all the various interaction terms. We also note that the quadratic term for MonthlyCharges is not statistically significant after including the linear term MonthlyCharges and interaction terms that include MonthlyCharges.
+
+\newpage
+\subsection{3.5 Test a hypothesis: Total effect of gender}
+```{r gender, echo = TRUE, warning = FALSE, message = FALSE}
+Anova(m3, test = "LR")
+```
+Running the LRT on Model 3, we see that the main effect of gender on churn is not significant. We also note that the interaction effects involving gender are not significant at the 0.05 level, but two of them MonthlyCharges:gender and TotalCharges:gender are weakly significant at a 0.1 level. However, at 0.05 level, we thus conclude that gender, together with the interaction terms involving gender, are all not statistically significant in helping us predict churn. 
+
+\newpage
+\subsection{3.6 Senior V.S. non-senior customers}
+```{r senior vs non senior, echo = TRUE, warning = FALSE, message = FALSE}
+m4 <- glm(formula = Churn ~ tenure + MonthlyCharges + TotalCharges + SeniorCitizen + 
+            I(tenure^2) + I(TotalCharges^2) + 
+           SeniorCitizen:MonthlyCharges, 
+         data = telcom_churn, family = binomial(link = "logit"))
+
+tenure_avg = mean(telcom_churn$tenure)
+MonthlyCharges_avg = mean(telcom_churn$MonthlyCharges)
+TotalCharges_avg = mean(telcom_churn$TotalCharges)
+
+average_values_senior_compare <- data.frame(tenure = tenure_avg,
+                             MonthlyCharges = MonthlyCharges_avg,
+                             TotalCharges = TotalCharges_avg, SeniorCitizen = c("1","0"))
+
+predicted_prob <- predict(m4, newdata = average_values_senior_compare, type = "response")
+names(predicted_prob) <- c("Senior", "Non-Senior")
+predicted_prob
+```
+
+The probability of a Senior Citizen with average tenure, MonthlyCharges and TotalCharges churning is 0.2814961, and the probability of a Non-Senior Citizen with the same averages churning is 0.1482713. The relative risk is thus 1.90, which means that churning is 1.90 times as likely for Senior Citizens with average tenure, MonthlyCharges and TotalCharges than for non-Senior Citizens with average tenure, MonthlyCharges and TotalCharges.
+
+\newpage
+\subsection{3.7 Construct a confidence interval}
+```{r ci, echo = TRUE, warning = FALSE, message = FALSE}
+Z <- qnorm(0.975)
+df_predict_1 <- data.frame(tenure = 55.00,
+                             MonthlyCharges = 89.86,
+                             TotalCharges = 3794.7, SeniorCitizen = "0")
+
+df_predict_2 <- data.frame(tenure = 29.00,
+                             MonthlyCharges = 18.25,
+                             TotalCharges = 401.4, SeniorCitizen = "1")
+
+predict_1 <- predict(m4, newdata = df_predict_1, type = "response", se = TRUE)
+predict_2 <- predict(m4, newdata = df_predict_2, type = "response", se = TRUE)
+
+ci_predict_1 <- c(predict_1$fit - Z*predict_1$se, predict_1$fit + Z*predict_1$se)
+ci_predict_2 <- c(predict_2$fit - Z*predict_2$se, predict_2$fit + Z*predict_2$se)
+
+predict_1$fit
+ci_predict_1
+predict_2$fit
+ci_predict_2
+
+```
+For a customer with the profile tenure = 55.00, MonthlyCharges = 89.86, TotalCharges = 3794.7, SeniorCitizen = "No”, the probability of churn is 0.1249331 with a 95% confidence interval that it is in the range (0.1045881, 0.1452781).
+
+For a customer with the profile tenure = 29.00, MonthlyCharges = 18.25, TotalCharges = 401.4, SeniorCitizen = "Yes”, the probability of churn is 0.09161642 with a 95% confidence interval that it is in the range (0.05017314, 0.13305970).
+
