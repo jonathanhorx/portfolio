@@ -19,4 +19,5 @@ This is a group project I worked on for the Master of Information and Data Scien
 7. Communication with management and pitching recommendations
 
 **Overview**
-My team and I analyzed U.S. family earnings and medical expenses using 2023 survey data, checking OLS assumptions to ensure robustness. Our models showed a positive link between earnings and healthcare spending, offering insights for policymakers and insurers on income-driven healthcare costs.
+
+My team and I found factors driving Airbnb customer ratings and demand. We identified "stellar" listings (high ratings and review counts) and found that clear house rules enhance guest satisfaction. We mapped these listings and provided Airbnb with targeted recommendations for strategic investment.
