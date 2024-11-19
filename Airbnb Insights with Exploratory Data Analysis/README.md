@@ -1,4 +1,4 @@
-# Analyzing Family Earnings and Medical Expenditures
+# Airbnb Insights with Exploratory Data Analysis
 This is a group project I worked on for the Master of Information and Data Science (MIDS) program at UC Berkeley.
 
 **Links**
