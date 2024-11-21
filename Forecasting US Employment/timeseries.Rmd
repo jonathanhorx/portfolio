@@ -1,0 +1,390 @@
+```{r}
+#install.packages('fpp3')
+library(fpp3)
+library(vars)
+library(tseries)
+library(tidyverse)
+library(patchwork)
+
+# datasets from fpp3
+# PBS
+# ansett
+# tourism
+# aus_production
+# aus_arrivals
+# aus_retail
+# aus_livestock
+# us_employment
+
+# https://otexts.com/fpp3/arima-exercises.html 
+# question 10 seems promising!
+```
+```{r china and usa GDP growth VAR model}
+# dataset: global_economy
+
+# Pulling out China and USA as separate 
+china <- global_economy %>% filter(Country == "China")
+usa <- global_economy %>% filter(Country == "United States")
+
+# Testing both for unit roots
+china %>% features(Growth,unitroot_kpss)
+usa %>% features(Growth,unitroot_kpss)
+
+# Taking difference
+china<-china %>% mutate(Growth_diff = difference(Growth))
+usa<-usa %>% mutate(Growth_diff = difference(Growth))
+
+# Test for unit root again
+china %>% features(Growth_diff,unitroot_kpss)
+usa %>% features(Growth_diff,unitroot_kpss)
+
+# Plotting both China's and USA's GDP growth time series
+autoplot(china,Growth) + autolayer(usa, Growth)
+
+# Building VAR model
+china_usa_select <- cbind(china$Growth_diff, usa$Growth_diff)
+
+VARselect(na.omit(china_usa_select), lag.max = 20, type = 'none')
+model = vars::VAR(as.ts(na.omit(china_usa_select)), p = 5, type = "none")
+
+summary(model)
+
+# Model evaluation
+roots(model)
+serial.test(model, lags.pt = 12)
+
+
+model = vars::VAR(as.ts(na.omit(china_usa_select)), p = 5, type = "none") 
+forecast <- model %>% forecast(h = 5)
+# Plot the past values and the forecasted values
+autoplot(forecast, `Point Forecast`) +
+labs(title = "CHN and USA", x = "Year", y = "Values") + theme_minimal()
+
+# look into VECM?
+
+#po.test(cbind(china$Growth, usa$Growth)) 
+
+```
+
+
+```{r us employment SARIMAX}
+# unique(us_employment$Title)
+
+# Pulling out Leisure, Retail, and Transportation from US employment data
+leisure_hospitality <- us_employment %>% filter(Title == "Leisure and Hospitality") %>% filter(Month >= as.Date("1990-01-01")) %>%na.omit()
+# retail_trade <- us_employment %>% filter(Title == "Retail Trade") %>% na.omit()
+# transportation.air <- us_employment %>% filter(Title == "Transportation and Warehousing: Air Transportation") %>% na.omit()
+  
+# Plotting Time Series     
+
+autoplot(leisure_hospitality,Employed)
+
+# autoplot(retail_trade,Employed)
+# autoplot(transportation.air,Employed)
+
+# Looking at seasonality
+gg_season(leisure_hospitality, Employed) +
+  labs(
+    title = "Seasonality",
+    x = "Time",
+    y = "Employed"
+   )
+# 
+# gg_season(retail_trade, Employed) +
+#   labs(
+#     title = "Seasonality",
+#     x = "Time",
+#     y = "Employed"
+#   )
+# 
+# gg_season(transportation.air, Employed) +
+#   labs(
+#     title = "Seasonality",
+#     x = "Time",
+#     y = "Employed"
+#   )
+# 
+
+```
+
+
+```{r}
+
+# Use decomposition
+stl_model <- leisure_hospitality %>%
+  model(STL(Employed ~ season(window = 12)))  # STL decomposition with seasonal component
+
+# Extract the components (trend, season, remainder) from the STL model
+stl_components <- components(stl_model)
+
+# Plot the components to see how STL decomposed the data
+stl_plot <- autoplot(stl_components) + 
+  labs(title = "STL Decomposition", 
+       y = "Employed")
+stl_plot # Note increasing variance in leisure
+
+
+```
+
+
+```{r}
+# Look at ACFs
+ACF(leisure_hospitality, Employed) %>% autoplot()
+# ACF(retail_trade, Employed) %>% autoplot()
+# ACF(transportation.air, Employed) %>% autoplot()
+
+# Take the log of the 'Employed' column in all three datasets
+leisure_hospitality <- leisure_hospitality %>%
+  mutate(diff_log_Employed = difference(difference(log(Employed)),12))
+# 
+# retail_trade <- retail_trade %>%
+#   mutate(diff_log_Employed = difference(difference(log(Employed)),12))
+# 
+# transportation.air <- transportation.air %>%
+#   mutate(diff_log_Employed = difference(difference(log(Employed)),12))
+
+autoplot(leisure_hospitality,diff_log_Employed) # note the non-constant variance (will see if residuals also show that. ultimately what we want is white noise residuals)
+# autoplot(retail_trade,diff_log_Employed) # note the non-constant variance
+# autoplot(transportation.air,diff_log_Employed) # note the non-constant variance
+
+# Look at ACFs of differenced and log Employed
+ACF(leisure_hospitality, diff_log_Employed) %>% autoplot()
+PACF(leisure_hospitality, diff_log_Employed) %>% autoplot()
+# ACF(retail_trade, diff_log_Employed) %>% autoplot()
+# ACF(transportation.air, diff_log_Employed) %>% autoplot()
+
+```
+
+
+```{r}
+# Create column for log Employed
+leisure_hospitality <- leisure_hospitality %>%
+  mutate(log_Employed = log(Employed))
+
+# Build model
+model.leisure <- leisure_hospitality %>%
+  model(
+    #auto = ARIMA(log_Employed, stepwise = FALSE, approx = FALSE, ic = "aicc"),
+    tryout = ARIMA(log_Employed ~ pdq(2,1,2) + PDQ(0,1,1))
+    )
+
+model.leisure %>%  report()
+
+
+```
+
+
+```{r}
+# Evaluating model
+model.leisure.residuals <- model.leisure %>%
+  residuals()
+
+# Plot the residuals over time
+model.leisure.residuals.plot <- autoplot(model.leisure.residuals) +
+  labs(title = "Residuals", x = "Year", y = "Residuals")
+
+# Plot the ACF of the residuals
+model.leisure.residuals.acf <- ACF(model.leisure.residuals) %>%autoplot() +
+  labs(title = "ACF Residuals", x = "Lag", y = "ACF")
+
+# Q-Q plot to check normality of residuals
+model.leisure.residuals.qq <- ggplot(data = as.data.frame(model.leisure.residuals), aes(sample = .resid)) +
+  stat_qq() +
+  stat_qq_line() +
+  labs(title = "Q-Q Plot of Residuals", x = "Theoretical Quantiles", y = "Sample Quantiles")
+
+model.leisure.residuals.plot |model.leisure.residuals.acf| model.leisure.residuals.qq
+
+```
+
+```{r}
+# Ljung Box Test on residuals
+resid.ts.nsa <- model.leisure.residuals %>%
+  dplyr::select(.resid) %>%
+  pull(.resid)  # Convert to a numeric vector
+
+# Convert the residuals into a time series object
+resid.ts.nsa <- ts(resid.ts.nsa)
+
+# Perform the Ljung-Box test on the residuals
+Box.test(resid.ts.nsa, lag = 24, type = "Ljung-Box")
+
+```
+
+
+```{r}
+# Seasonally adjust by removing the seasonal component
+stl_components <- stl_components %>%
+  mutate(seasonally_adjusted_value = Employed - season_year)# Subtract the seasonal component
+
+leisure_hospitality.sa <- stl_components %>%dplyr::select(Month, seasonally_adjusted_value)
+
+# Model seasonally adjusted values
+model.leisure.adjusted <- leisure_hospitality.sa %>%
+  model(
+    auto = ARIMA(seasonally_adjusted_value, stepwise = FALSE, approx = FALSE, ic = "bic")
+    )
+
+model.leisure.adjusted %>% report()
+```
+
+
+```{r}
+# Evaluating SA model
+model.leisure.adjusted.residuals <- model.leisure.adjusted %>%
+  residuals()
+
+# Plot the residuals over time
+model.leisure.adjusted.residuals.plot <- autoplot(model.leisure.adjusted.residuals) +
+  labs(title = "Residuals", x = "Year", y = "Residuals")
+
+# Plot the ACF of the residuals
+model.leisure.adjusted.residuals.acf <- ACF(model.leisure.adjusted.residuals) %>%autoplot() +
+  labs(title = "ACF Residuals", x = "Lag", y = "ACF")
+
+# Q-Q plot to check normality of residuals
+model.leisure.adjusted.residuals.qq <- ggplot(data = as.data.frame(model.leisure.adjusted.residuals), aes(sample = .resid)) +
+  stat_qq() +
+  stat_qq_line() +
+  labs(title = "Q-Q Plot of Residuals", x = "Theoretical Quantiles", y = "Sample Quantiles")
+
+model.leisure.adjusted.residuals.plot |model.leisure.adjusted.residuals.acf| model.leisure.adjusted.residuals.qq
+
+```
+
+```{r}
+# Ljung Box Test on residuals
+resid.ts.sa <- model.leisure.adjusted.residuals %>%
+  dplyr::select(.resid) %>%
+  pull(.resid)  # Convert to a numeric vector
+
+# Convert the residuals into a time series object
+resid.ts.sa <- ts(resid.ts.sa)
+
+# Perform the Ljung-Box test on the residuals
+Box.test(resid.ts.sa, lag = 24, type = "Ljung-Box")
+
+```
+
+
+```{r}
+# Forecast the next 5 years
+forecast_leisure <- model.leisure.adjusted %>%
+  forecast(h = "5 years")
+
+# Pull in latest data and clean it
+leisure_hospitality_latest <- read_csv("leisurelatestdata.csv")
+leisure_hospitality_latest <- leisure_hospitality_latest %>% rename(Employed = CEU7000000001, Month = DATE) %>% filter(Month>"2019-09-01") %>% mutate(Month = yearmonth(Month)) %>% mutate(log_employed = log(Employed)) %>% as_tsibble(index = Month)
+
+# Step 2: Extract the last available seasonal pattern from STL components
+# Here, we assume that the seasonal pattern is yearly and repeats
+seasonal_pattern <- stl_components %>%
+  filter(Month >= yearmonth("2019-01-01") & Month < yearmonth("2020-01-01")) %>%
+  dplyr::select(Month, season_year)
+
+# Step 3: Repeat the seasonal pattern for the forecast period
+forecast_months <- forecast_leisure %>% pull(Month)  # Get forecasted months
+seasonal_forecast <- tibble(
+  Month = forecast_months,
+  season_year = rep(seasonal_pattern$season_year, length.out = length(forecast_months))
+)
+
+# Step 4: Add the seasonal component back to the forecasted values
+forecast_with_seasonality <- forecast_leisure %>%
+  left_join(seasonal_forecast, by = "Month") %>%
+  mutate(
+    original_scale_forecast = .mean + season_year
+  )
+# 
+# # Step 5: Plot the original data and the forecast with added seasonality (UPDATE p)
+# autoplot(leisure_hospitality, Employed) +
+#   autolayer(forecast_with_seasonality, original_scale_forecast, series = "Forecast with Seasonality", PI = TRUE) +
+#   geom_line(data = forecast_with_seasonality, aes(x = Month, y = original_scale_forecast), color = "blue") +
+#   autolayer(leisure_hospitality_latest,Employed)+
+#   autolayer(stl_components,seasonally_adjusted_value, color = "salmon")+
+#   labs(title = "Leisure and Hospitality Employment Forecast with Seasonality Added Back",
+#        x = "Year",
+#        y = "Employment") +
+#   theme_minimal()
+  
+  
+# Plot the original data and the forecasts
+autoplot(leisure_hospitality.sa, seasonally_adjusted_value) +
+  autolayer(forecast_leisure, .mean) +
+  autolayer(leisure_hospitality_latest,Employed)
+  labs(title = "Leisure and Hospitality Employment Forecast",
+       x = "Year",
+       y = "Employment") +
+  theme_minimal()
+
+  
+  # next steps: play around with the NSA model, see if can get a better fit. UPDATE: i think managed to get one!! PTL
+  # plot fits on training data, compare both models with MAE/RMSE on training data
+  # plot forecasts and actual for both NSA and SA data. add in moving average for the COVID shock to smooth it out, for SA data. talk about importance of noting other variables that might impact the time series
+  
+  # if you reallllly want, you can split original data into training and test, just to show that you can forecast accurately for some years in the absence of COVID, but that is unlikely to be important. What matters is you showcasing your understanding of how to evaluate the models etc.
+```
+
+```{r}
+
+leisure_hospitality_latest <- leisure_hospitality_latest %>% dplyr::select("Month", "Employed")%>% as_tibble()
+leisure_hospitality <- leisure_hospitality %>% dplyr::select("Month", "Employed") %>% as_tibble()
+leisure_hospitality <- rbind(leisure_hospitality,leisure_hospitality_latest) %>% as_tsibble(index = Month)
+leisure_hospitality <- leisure_hospitality %>% mutate(log_Employed = log(Employed))
+
+# Define the start and end dates for the COVID period
+covid_start <- as.Date("2020-03-01")
+covid_end <- as.Date("2022-03-01")
+
+# Add the COVID column to the dataset
+leisure_hospitality <- leisure_hospitality %>%
+  mutate(
+    COVID = ifelse(Month >= covid_start & Month <= covid_end, 1, 0)
+  )
+
+model.leisure.covid <- leisure_hospitality %>%
+  model(
+    auto = ARIMA(log_Employed ~ COVID, stepwise = FALSE, approx = FALSE, ic = "bic")
+    )
+model.leisure.covid %>%  report()
+
+
+# Define the new date range for forecasting (from Nov 2024 to Nov 2026)
+forecast_dates <- seq(as.Date("2024-11-01"), as.Date("2029-11-01"), by = "month")
+model.leisure.covid.fitted <- fitted(model.leisure.covid)
+# Create a tibble for the new data with the COVID indicator
+new_data <- tibble(
+  Month = yearmonth(forecast_dates),
+  COVID = ifelse(Month >= yearmonth("2024-11") & Month <= yearmonth("2026-11"), 1, 0)
+) %>% as_tsibble(index = Month)
+
+# Use the model to forecast using the new data
+forecast_leisure_covid <- model.leisure.covid %>%
+  forecast(new_data = new_data)
+
+# Plot the forecast alongside the original data
+autoplot(leisure_hospitality, log_Employed) +
+  autolayer(model.leisure.covid.fitted, .fitted, color = "cornflowerblue") +
+  autolayer(forecast_leisure_covid, .mean) +
+  labs(title = "Leisure and Hospitality Employment Forecast with COVID Adjustment",
+       x = "Year",
+       y = "Employment (log)") +
+  coord_cartesian(xlim = c(as.Date("2018-01-01"), NA), ylim=c(9,10))  # Limit to data from 2020 onwards
+  theme_minimal()
+
+
+#########
+
+```
+
+
+```{r}
+# aus_arrivals.japan <- aus_arrivals %>% filter(Origin == "Japan")
+# gg_season(aus_arrivals.japan, Arrivals) +
+#   labs(
+#     title = "Seasonality",
+#     x = "Time",
+#     y = "Arrivals"
+#   )
+# autoplot(aus_arrivals.japan,Arrivals)
+```

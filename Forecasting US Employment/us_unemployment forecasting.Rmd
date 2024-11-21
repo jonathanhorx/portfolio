@@ -1,0 +1,430 @@
+---
+title: 'Forecasting US Employment With Time Series Models'
+author: 'Jonathan Ho'
+date: "2024-11-20"
+geometry: margin=1in
+output:
+  bookdown::pdf_document2:
+    toc: true
+    number_sections: true
+    fig_caption: true
+---
+
+# Introduction and Motivation
+Understanding employment trends is crucial for policymakers, economists, and businesses to make informed decisions about resource allocation, economic planning, and workforce strategies. The Leisure and Hospitality sector, in particular, plays a vital role in the U.S. economy, contributing significantly to employment and consumer spending. Analyzing historical employment data and forecasting future trends in this sector can provide valuable insights into its growth trajectory and resilience to disruptions.
+
+This report explores employment trends in the Leisure and Hospitality sector using time series modeling. By leveraging data from 1990 to 2024, it examines seasonality, long-term trends, and the impact of unprecedented shocks such as the COVID-19 pandemic. The analysis compares the performance of various ARIMA models on both seasonally adjusted and non-seasonally adjusted data, with the goal of identifying the most reliable forecasting approach. The findings aim to inform future research and decision-making in this dynamic and economically significant sector.
+
+# Data Preprocessing and Exploratory Data Analysis
+The original U.S. employment data from 1990-2019 is sourced from the `fpp3` package. This report focuses on the employment time series for Leisure and Hospitality. The dataset is split into a training set (1990-2017), and a validation set (2017-2019). Additionally, the latest data from 2020 to 2024 is obtained from FRED economic data for further forecasting and analysis. We first look at the time series and seasonality plots for the training set below.
+
+```{r import packages, echo = FALSE, warning = FALSE, message = FALSE}
+library(fpp3)
+library(vars)
+library(tseries)
+library(tidyverse)
+library(patchwork)
+library(knitr)
+library(kableExtra)
+```
+
+```{r tsandseasonality, echo = FALSE, fig.width = 10, fig.height = 3.5, fig.cap = "Clear persistent trend and seasonality in leisure and hospitality"}
+# Look at list of US employment types available
+# unique(us_employment$Title)
+
+# Pulling out Leisure from US employment data
+leisure_hospitality<- us_employment %>% filter(Title == "Leisure and Hospitality") %>% filter(Month >=  yearmonth("1990 Jan")) %>%na.omit()
+
+leisure_hospitality_train <- us_employment %>% filter(Title == "Leisure and Hospitality") %>% filter(Month >=  yearmonth("1990 Jan"),Month <=  yearmonth("2017 Dec")) %>%na.omit()
+
+leisure_hospitality_val <- us_employment %>% filter(Title == "Leisure and Hospitality") %>% filter(Month >=  yearmonth("2018 Jan")) %>%na.omit()
+  
+# Plot time series
+leisure_ts_plot <- autoplot(leisure_hospitality_train,Employed)+
+  labs(
+    title = "US Employment: Leisure and Hospitality",
+    subtitle = "Training set: 1990 - 2017",
+    x = "Time",
+    y = "Employed"
+   )
+
+# Plot seasonality
+leisure_seasonality_plot <-gg_season(leisure_hospitality_train, Employed) +
+  labs(
+    title = "Seasonality",
+    subtitle = "Training set: 1990 - 2017",
+    x = "Time",
+    y = "Employed"
+   )
+
+leisure_ts_plot | leisure_seasonality_plot
+```
+
+\newpage
+The time series plot on the left reveals a clear persistent upward trend, while the seasonality plot on the right highlights annual patterns. Leisure and Hopitality employment peaks in the summer months, and dips in the winter. This behavior aligns with industry expectations, as tourism often peaks in the summer months, leading to increased hiring in this sector.
+
+To better understand the underlying structure of the time series, STL decomposition is applied to break down the time series into its components, namely the trend, the yearly seasonality, and remainder. The resulting plot is below. 
+
+```{r stl-decomposition, echo = FALSE, fig.align='center', fig.height=6, fig.width=10, out.width="100%", fig.cap = "Note the increasing variance in seasonality as the year increases", message = FALSE, warning = FALSE}
+# Use decomposition
+stl_model <- leisure_hospitality_train %>%
+  model(STL(Employed ~ season(window = 12)))  # STL decomposition with seasonal component
+
+# Extract the components (trend, season, remainder) from the STL model
+stl_components <- components(stl_model)
+
+# Plot the components to see how STL decomposed the data
+stl_plot <- autoplot(stl_components) + 
+  labs(title = "STL Decomposition", 
+       y = "Employed")
+stl_plot # Note increasing variance in leisure
+```
+
+The decomposition plot shows a long-term upward trend, indicative of overall economic growth. There is also increasing variance in the seasonality over time. To stabilize the variance, we will transform the variable using a logarithm. 
+
+The Augmented Dickey-Fuller (ADF) test is used to check for stationarity. As expected from the persistent trend in the time series plot, the initial test yields a p-value of 0.2385, indicating insufficient evidence to reject the null hypothesis of non-stationarity. To address this, we apply both first differencing to remove the upward trend, and seasonal differencing (12) to address teh yearly seasonality. After these transformations, the ADF test is repeated on the transformed data. The p-value of 0.01 provides sufficient evidence to reject the null hypothesis, confirming that the time series is now stationary in the mean.
+
+```{r adf before transformation, echo = FALSE}
+# adf.test(na.omit(leisure_hospitality_train$Employed))
+```
+
+
+
+
+```{r differencing, echo = FALSE, warning = FALSE}
+# Take the log of the 'Employed' column, a first difference, and a 12th difference
+leisure_hospitality_train <- leisure_hospitality_train %>%
+  mutate(diff_log_Employed = difference(difference(log(Employed)),12))
+```
+
+```{r adf after transformation, echo = FALSE}
+# adf.test(na.omit(leisure_hospitality_train$diff_log_Employed))
+```
+
+We can now plot the ACF and PACFs of the transformed series to observe if they give us any insight into how we should build our model.
+
+
+```{r acfandpacf, echo = FALSE, fig.width = 10, fig.height = 4, fig.cap = "ACF and PACF"}
+# Look at ACFs of differenced and log Employed
+leisure_acf <- ACF(leisure_hospitality_train, diff_log_Employed) %>% autoplot() + 
+  labs(
+  title = "ACF",
+    subtitle = "Log and differenced (1 and 12) Employment",
+    x = "Lag",
+  y = "Autocorrelation"
+)
+leisure_pacf <-PACF(leisure_hospitality_train, diff_log_Employed) %>% autoplot()+ 
+  labs(
+  title = "PACF",
+    subtitle = "Log and differenced (1 and 12) Employment",
+    x = "Lag",
+  y = "Autocorrelation"
+)
+leisure_acf | leisure_pacf
+```
+
+The ACF and PACFs of the transformed series taper off quickly, suggesting the presence of both MA and AR components. Additionally, the sudden spikes at lags 12 and 24 suggest that there is a seasonal MA term. Based on these observations, we propose an ARIMA(2,1,2)(0,1,1)[12] model. 
+
+To ensure model parsimony, we also use the `ARIMA` function to automatically select a model based on the Bayesian Information Criterion (BIC), which is better suited for avoiding overfitting due to its stronger penalty for model complexity compared to AIC.
+
+# Model Development: Non-Seasonally Adjusted Employment
+
+```{r comparingSARIMA, echo = FALSE, results = "asis", cache = TRUE}
+# Create column for log Employed
+leisure_hospitality_train <- leisure_hospitality_train %>%
+  mutate(log_Employed = log(Employed))
+
+# Build model
+model.leisure.NSA <- leisure_hospitality_train %>%
+  model(
+    auto = ARIMA(log_Employed, stepwise = FALSE, approx = FALSE, ic = "bic"),
+    arima212011 = ARIMA(log_Employed ~ pdq(2,1,2) + PDQ(0,1,1))
+    )
+# Replace model names with their detailed descriptions
+model_summary <- model.leisure.NSA %>%
+  glance() %>%
+  dplyr::select(.model, BIC, log_lik) %>%
+  rename(Model = .model, LogLikelihood = log_lik) %>%
+  mutate(
+    Model = case_when(
+      Model == "auto" ~ "auto: ARIMA(2,0,1)(0,1,2)[12] w/ drift",
+      Model == "arima212011" ~ "ARIMA(2,1,2)(0,1,1)[12]",
+      TRUE ~ Model # fallback for other cases
+    )
+  )
+
+# Display the updated table
+kable(model_summary, 
+      caption = "Model Comparison: BIC and Log-Likelihood",
+      col.names = c("Model", "BIC", "Log-Likelihood"),
+      format = "latex")%>%
+  kable_styling(font_size =9,latex_options = "HOLD_position")  
+```
+
+The `ARIMA` function selected ARIMA(2,0,1)(0,1,2)[12] w/ drift, which slightly outperformed our proposed ARIMA(2,1,2)(0,1,1)[12] in terms of maximizing log-likelihood and minimizing BIC. However, since the BIC and log-likelihoods values for both models are very close, we further evaluate their performance by examining the residuals to assess the quality of their training fits to decide which model to pick for forecasting. The residual diagnostics plots are below; the first row is for the model the `ARIMA` function picked, and the second row is for our proposed model.
+
+\newpage
+
+
+```{r comparingSARIMAmodels, echo = FALSE, fig.align='center', fig.height=6, fig.width=10, out.width="100%", fig.cap = "ARIMA(2,1,2)(0,1,1)[12] residuals look more like white noise", message = FALSE, warning = FALSE, cache = TRUE}
+
+# Evaluating auto model
+model.leisure.NSA.auto.residuals <- model.leisure.NSA %>% dplyr::select(auto) %>%
+  residuals()
+
+# Plot the residuals over time for auto model
+model.leisure.NSA.auto.residuals.plot <- autoplot(model.leisure.NSA.auto.residuals) +
+  labs(title = "Residuals", x = "Year", y = "Residuals", subtitle = "auto: ARIMA(2,0,1)(0,1,2)[12] w/ drift")
+
+# Plot the ACF of the residuals for auto model
+model.leisure.NSA.auto.residuals.acf <- ACF(model.leisure.NSA.auto.residuals) %>%autoplot() +
+  labs(title = "ACF Residuals", x = "Lag", y = "Autocorrelation", subtitle = "auto: ARIMA(2,0,1)(0,1,2)[12] w/ drift")
+
+# Q-Q plot to check normality of residuals for auto model
+model.leisure.NSA.auto.residuals.qq <- ggplot(data = as.data.frame(model.leisure.NSA.auto.residuals), aes(sample = .resid)) +
+  stat_qq() +
+  stat_qq_line() +
+  labs(title = "Q-Q Plot of Residuals", x = "Theoretical Quantiles", y = "Sample Quantiles", subtitle = "auto: ARIMA(2,0,1)(0,1,2)[12] w/ drift")
+
+# Evaluating chosen model
+model.leisure.NSA.chosen.residuals <- model.leisure.NSA %>% dplyr::select(arima212011) %>%
+  residuals()
+
+# Plot the residuals over time for chosen model
+model.leisure.NSA.chosen.residuals.plot <- autoplot(model.leisure.NSA.chosen.residuals) +
+  labs(title = "Residuals", x = "Year", y = "Residuals",subtitle="ARIMA(2,1,2)(0,1,1)[12]")
+
+# Plot the ACF of the residuals for chosen model
+model.leisure.NSA.chosen.residuals.acf <- ACF(model.leisure.NSA.chosen.residuals) %>%autoplot() +
+  labs(title = "ACF Residuals", x = "Lag", y = "Autocorrelation",subtitle="ARIMA(2,1,2)(0,1,1)[12]")
+
+# Q-Q plot to check normality of residuals for chosen model
+model.leisure.NSA.chosen.residuals.qq <- ggplot(data = as.data.frame(model.leisure.NSA.chosen.residuals), aes(sample = .resid)) +
+  stat_qq() +
+  stat_qq_line() +
+  labs(title = "Q-Q Plot of Residuals", x = "Theoretical Quantiles", y = "Sample Quantiles",subtitle="ARIMA(2,1,2)(0,1,1)[12]")
+
+combined_plot<-(model.leisure.NSA.auto.residuals.plot + 
+  model.leisure.NSA.auto.residuals.acf + 
+  model.leisure.NSA.auto.residuals.qq)/(model.leisure.NSA.chosen.residuals.plot + 
+  model.leisure.NSA.chosen.residuals.acf + 
+  model.leisure.NSA.chosen.residuals.qq)
+combined_plot
+```
+
+Upon comparing the residuals, the ACF plot for our chosen model, ARIMA(2,1,2)(0,1,1)[12], exhibits patterns that are much closer to white noise. This finding is supported by the results of the Ljung-Box tests:
+
+- For the ARIMA auto-selected model (ARIMA(2,0,1)(0,1,2)[12] w/ drift), the test produced a p-value of 4.609e-06, indicating strong evidence of correlation in the residuals.
+- For our chosen model (ARIMA(2,1,2)(0,1,1)[12]), the test yielded a p-value of 0.9649, suggesting insufficient evidence to reject the null hypothesis of uncorrelated residuals.
+```{r  Ljung Box Tests, echo = FALSE}
+# Ljung Box Test on auto residuals
+resid.ts.NSA.auto <- model.leisure.NSA.auto.residuals %>%
+  dplyr::select(.resid) %>%
+  pull(.resid)  # Convert to a numeric vector
+
+# Convert the auto residuals into a time series object
+resid.ts.NSA.auto <- ts(resid.ts.NSA.auto)
+
+# Perform the Ljung-Box test on the auto residuals
+#Box.test(resid.ts.NSA.auto, lag = 24, type = "Ljung-Box")
+
+
+
+# Ljung Box Test on chosen model residuals
+resid.ts.NSA.chosen <- model.leisure.NSA.chosen.residuals %>%
+  dplyr::select(.resid) %>%
+  pull(.resid)  # Convert to a numeric vector
+
+# Convert the residuals into a time series object
+resid.ts.NSA.chosen <- ts(resid.ts.NSA.chosen)
+
+# Perform the Ljung-Box test on the chosen residuals
+#Box.test(resid.ts.NSA.chosen, lag = 24, type = "Ljung-Box")
+
+```
+
+# Model Development: Seasonally Adjusted Employment
+
+To enhance our analysis, we construct an additional model based on seasonally adjusted employment. Seasonal adjustment is performed by subtracting the seasonal component from the original values, as derived from the STL decomposition shown in Figure \@ref(fig:stl-decomposition). The resulting plot of seasonally adjusted employment is presented below.
+
+\newpage
+
+```{r seasonallyadjustingvalues, echo = FALSE, fig.align='center', fig.height=3, fig.width=5, out.width="100%", fig.cap = "Seasonally adjusted employment", message = FALSE, warning = FALSE}
+
+
+# Seasonally adjust by removing the seasonal component
+stl_components <- stl_components %>%
+  mutate(seasonally_adjusted_value = Employed - season_year)# Subtract the seasonal component
+
+leisure_hospitality.sa <- stl_components %>%dplyr::select(Month, seasonally_adjusted_value)
+
+leisure_hospitality.sa %>% autoplot(.vars=seasonally_adjusted_value) + labs(
+  title = "Seasonally Adjusted Employment",
+  x="Month",
+  y = "Employment"
+)
+
+```
+
+We proceed to build a model for the seasonally adjusted employment data, allowing the `ARIMA` function to select the optimal model based on the lowest BIC. This process results in the model ARIMA(2,1,1)(2,0,1)[12] w/ drift. We now conduct model diagnostics by analyzing the residuals.
+
+```{r SA model building, echo = FALSE, warning = FALSE, cache = TRUE, message = FALSE}
+# Model seasonally adjusted values
+model.leisure.SA <- leisure_hospitality.sa %>%
+  model(
+    auto = ARIMA(seasonally_adjusted_value, stepwise = FALSE, approx = FALSE, ic = "aicc")
+    )
+
+# model.leisure.adjusted %>% report()
+```
+
+```{r SAmodelevaluation, fig.align='center', fig.height = 3.5, fig.width = 10, fig.cap = "ARIMA(2,1,1)(2,0,1)[12] w/ drift on seasonally adjusted values does not have white noise residuals", echo = FALSE, warning = FALSE, message = FALSE}
+# Evaluating SA model
+model.leisure.SA.residuals <- model.leisure.SA %>%
+  residuals()
+
+# Plot the residuals over time
+model.leisure.SA.residuals.plot <- autoplot(model.leisure.SA.residuals) +
+  labs(title = "Residuals", x = "Year", y = "Residuals")
+
+# Plot the ACF of the residuals
+model.leisure.SA.residuals.acf <- ACF(model.leisure.SA.residuals) %>%autoplot() +
+  labs(title = "ACF Residuals", x = "Lag", y = "ACF")
+
+# Q-Q plot to check normality of residuals
+model.leisure.SA.residuals.qq <- ggplot(data = as.data.frame(model.leisure.SA.residuals), aes(sample = .resid)) +
+  stat_qq() +
+  stat_qq_line() +
+  labs(title = "Q-Q Plot of Residuals", x = "Theoretical Quantiles", y = "Sample Quantiles")
+
+model.leisure.SA.residuals.plot |model.leisure.SA.residuals.acf| model.leisure.SA.residuals.qq
+
+```
+
+Although the Q-Q plot shows close adherence to a normal distribution, the ACF of the residuals does not entirely resemble white noise, particularly due to the spike at lag 11. This observation suggests that the model may not fully capture the underlying structure of the time series. The Ljung-Box test yielded a p-value of 0.05326, which is close to the 0.05 threshold. While this result provides weak evidence against the null hypothesis of uncorrelated residuals, it does not strongly support rejecting the null.
+
+Given the marginal Ljung-Box test result and the availability of a validated model for non-seasonally adjusted data, we will proceed with forecasting using both models. This dual approach enables us to compare their practical forecasting accuracy while accounting for the limitations of the seasonally adjusted model.
+
+```{r Ljung Box test on SA model, echo = FALSE}
+# Ljung Box Test on residuals
+resid.ts.SA <- model.leisure.SA.residuals %>%
+  dplyr::select(.resid) %>%
+  pull(.resid)  # Convert to a numeric vector
+
+# Convert the residuals into a time series object
+resid.ts.SA <- ts(resid.ts.SA)
+
+# Perform the Ljung-Box test on the residuals
+# Box.test(resid.ts.SA, lag = 24, type = "Ljung-Box")
+
+```
+
+# Validation and Model Performance (Forecasting up to 2019)
+
+```{r forecastingplots, fig.align = 'center', fig.height = 3.5, fig.width = 10,fig.cap = "Model for non-seasonally adjusted values seems to forecast better", echo = FALSE, warning = FALSE, message = FALSE}
+# Forecast the next 2 years for SA data
+forecast.SA<- model.leisure.SA %>%
+  forecast(h = "1 year 10 months")
+# Forecast the next 2 years for NSA data
+forecast.NSA<- model.leisure.NSA %>% dplyr::select(arima212011)%>%
+  forecast(h = "1 year 10 months")
+
+# Create log_Employed values for validation data
+leisure_hospitality_val <- leisure_hospitality_val %>% mutate(log_Employed = log(Employed))
+
+# Use decomposition on training and validation sets again to seasonally adjust validation et
+stl_model <- leisure_hospitality %>%
+  model(STL(Employed ~ season(window = 12)))  # STL decomposition with seasonal component
+
+# Extract the components (trend, season, remainder) from the STL model
+stl_components <- components(stl_model)
+
+stl_components <- stl_components %>%
+  mutate(seasonally_adjusted_value = Employed - season_year)# Subtract the seasonal component
+
+leisure_hospitality.sa <- stl_components %>%dplyr::select(Month, seasonally_adjusted_value)
+
+# Plot the original data and the forecasts for NSA data
+forecast.NSA.plot<- autoplot(leisure_hospitality_train, log_Employed) +
+  autolayer(forecast.NSA, .mean) +
+  autolayer(leisure_hospitality_val,log_Employed) +
+  labs(title = "Leisure and Hospitality Employment Forecast",
+       subtitle = "Non-seasonally adjusted",
+       x = "Year",
+       y = "log(Employment)") +
+  theme_minimal()
+# Plot the original data and the forecasts for SA data
+forecast.SA.plot<- autoplot(leisure_hospitality.sa, seasonally_adjusted_value) +
+  autolayer(forecast.SA, .mean) +
+  autolayer(leisure_hospitality.sa,seasonally_adjusted_value)+
+  labs(title = "Leisure and Hospitality Employment Forecast",
+       subtitle = "Seasonally adjusted",
+       x = "Year",
+       y = "Employment") +
+  theme_minimal()
+
+
+forecast.NSA.plot | forecast.SA.plot
+  
+```
+The non-seasonally adjusted (NSA) model appears to forecast more accurately on the validation set, with predictions aligning closely with the observed values and falling well within the middle of the 80% confidence interval. In contrast, the seasonally adjusted (SA) model forecasts lower growth, with actual values nearing the 95% confidence interval. To further evaluate performance, we compare the RMSE of the two models on the validation data, ensuring that the NSA data was transformed back from its logarithmic scale before calculating RMSE.
+
+```{r rmse, echo = FALSE, results= 'asis', warning = FALSE}
+# Transform log-forecasted values back to original scale
+forecasted_values_nsa <- exp(forecast.NSA$.mean)
+actual_values <- leisure_hospitality_val$Employed  # Original scale for comparison
+
+# Compute RMSE for NSA model on original scale
+rmse_nsa <- sqrt(mean((forecasted_values_nsa - actual_values)^2, na.rm = TRUE))
+
+# Compute RMSE for SA model
+forecasted_values_sa <- forecast.SA$.mean  # Already in original scale
+rmse_sa <- sqrt(mean((forecasted_values_sa - actual_values)^2, na.rm = TRUE))
+
+# Create a data frame for the results
+rmse_results <- data.frame(
+  Model = c("Non-Seasonally Adjusted", "Seasonally Adjusted"),
+  RMSE = c(rmse_nsa, rmse_sa)
+)
+# Present the results in a kable
+library(knitr)
+kable(
+  rmse_results,
+  caption = "RMSE Comparison Between NSA and SA Models",
+  col.names = c("Model", "RMSE"),
+  format = "latex",
+  digits = 4
+)%>%
+  kable_styling(font_size =9,latex_options = "HOLD_position")  
+```
+
+As expected, the NSA model (ARIMA(2,1,2)(0,1,1)[12]) achieves a lower RMSE, indicating better performance. Based on this result, we proceed to use the NSA model for forecasting from 2020 to the present and discuss the role of exogenous variables.
+
+# Extended Forecasting and Implications (2020 Onwards)
+
+```{r covidplot, fig.height = 3.5, fig.width = 8,fig.cap = "COVID shock not accounted for in model", echo = FALSE, warning = FALSE, message= FALSE}
+# Pull in latest data and clean it
+leisure_hospitality_latest <- read_csv("leisurelatestdata.csv")
+leisure_hospitality_latest <- leisure_hospitality_latest %>% rename(Employed = CEU7000000001, Month = DATE) %>% filter(Month>"2017-09-01") %>% mutate(Month = yearmonth(Month)) %>% mutate(log_Employed = log(Employed)) %>% as_tsibble(index = Month)
+
+# Forecast the next 2 years for SA data
+forecast.NSA.long<- model.leisure.NSA %>% dplyr::select(arima212011)%>%
+  forecast(h = "7 years")
+
+# Plot the original data and the forecasts for NSA data
+forecast.NSA.long.plot<- autoplot(leisure_hospitality_train, log_Employed) +
+  autolayer(forecast.NSA.long, .mean)+
+  autolayer(leisure_hospitality_latest, log_Employed)+
+  labs(title = "Leisure and Hospitality Employment Forecast",
+       subtitle = "COVID shock not taken into account",
+       x = "Year",
+       y = "log(Employment)") +
+  theme_minimal()
+
+forecast.NSA.long.plot
+```
+The forecast generated by the ARIMA(2,1,2)(0,1,1)[12] model projects leisure and hospitality employment from 2020 onward, under the assumption that historical trends and seasonal patterns persist. However, the plot reveals that the forecast fails to account for the unprecedented shock of the COVID-19 pandemic, which caused a dramatic decline in employment in 2020. This stark deviation underscores the profound impact of the pandemic on the sector.
+
+By comparing actual employment values to the forecasted trend, we gain insights into whether current employment levels have recovered to their pre-pandemic trajectory. While employment in the leisure and hospitality sector has shown signs of recovery, the persistent gap between actual and forecasted values serves as an indicator of the pandemic's long-term effects.
+
+This analysis highlights the limitations of relying solely on historical data for forecasting, particularly when faced with unexpected, exogenous shocks. Incorporating exogenous variables—such as pandemic metrics, government interventions, or economic recovery indicators—could provide valuable context to improve model performance. Future work could explore advanced approaches like SARIMAX or machine learning models to better account for such disruptions and deliver more robust projections.
