@@ -4,7 +4,7 @@ This is a group project I worked on for the Master of Information and Data Scien
 **Links**
 1. [PDF report](https://github.com/jonathanhorx/portfolio/blob/main/OLS%20Regression%20on%20Analyzing%20Family%20Earnings%20and%20Medical%20Expenditures/Analyzing%20Family%20Earning%20and%20Medical%20Expenditures.pdf)
 
-2. [R Markdown version of report](https://github.com/jonathanhorx/portfolio/blob/main/OLS%20Regression%20on%20Analyzing%20Family%20Earnings%20and%20Medical%20Expenditures/Analyzing%20Family%20Earning%20and%20Medical%20Expenditures.Rmd)
+2. [R code](https://github.com/jonathanhorx/portfolio/blob/main/OLS%20Regression%20on%20Analyzing%20Family%20Earnings%20and%20Medical%20Expenditures/Analyzing%20Family%20Earning%20and%20Medical%20Expenditures.Rmd)
 
 
 **Skills demonstrated**
