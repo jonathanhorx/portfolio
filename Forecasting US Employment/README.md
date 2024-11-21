@@ -1,22 +1,22 @@
-# Analyzing Family Earnings and Medical Expenditures
-This is a group project I worked on for the Master of Information and Data Science (MIDS) program at UC Berkeley.
+# Forecasting US Employment with Time Series Models
+This is a solo project I worked on as part of my portfolio to demonstrate time series forecasting skills.
 
 **Links**
-1. [Presentation deck](https://github.com/jonathanhorx/portfolio/blob/main/Airbnb%20Insights%20with%20Exploratory%20Data%20Analysis/Airbnb%20EDA%20presentation.pdf)
+1. [Report](https://github.com/jonathanhorx/portfolio/blob/main/Forecasting%20US%20Employment/us_unemployment-forecasting.pdf)
 
-2. [Python code](https://github.com/jonathanhorx/portfolio/blob/main/Airbnb%20Insights%20with%20Exploratory%20Data%20Analysis/Code.ipynb)
+2. [R code ](https://github.com/jonathanhorx/portfolio/blob/main/Forecasting%20US%20Employment/us_unemployment%20forecasting.Rmd)
 
-3. [Written Report](https://github.com/jonathanhorx/portfolio/blob/main/Airbnb%20Insights%20with%20Exploratory%20Data%20Analysis/Report.pdf)
 
 **Skills demonstrated**
-1. Python
-2. Pandas
-3. Exploratory Data Analysis
-4. Data Visualization
-5. Asking interesting questions
-5. Data cleaning
-6. Compelling storytelling
-7. Communication with management and pitching recommendations
+1. R
+2. SARIMA Modeling
+3. STL Decomposition
+4. Exploratory Data Analysis with ACF, PACF plots
+5. Hypothesis Testing for Stationarity
+6. Removing Seasonality from Time Series
+7. Model Diagnostics from Residuals plots
+8. Forecasting and Model Evaluation
 
 **Overview**
-My team and I analyzed U.S. family earnings and medical expenses using 2023 survey data, checking OLS assumptions to ensure robustness. Our models showed a positive link between earnings and healthcare spending, offering insights for policymakers and insurers on income-driven healthcare costs.
+In this project, I analyzed U.S. employment data from 1990 to 2024, focusing on the Leisure and Hospitality sector. Using ARIMA models, I explored seasonality, trends, and the impact of shocks such as the COVID-19 pandemic. After evaluating non-seasonally adjusted and seasonally adjusted models, I selected the best-performing model based on residual diagnostics and RMSE. The results provided forecasts of employment trends and insights into how external events like the pandemic disrupt long-term patterns.
+
