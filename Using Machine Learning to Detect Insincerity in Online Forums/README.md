@@ -2,7 +2,7 @@
 This is a group project I worked on for the Master of Information and Data Science (MIDS) program at UC Berkeley.
 
 **Links**
-1. [Presentation deck]()
+1. [Presentation deck](https://github.com/jonathanhorx/portfolio/blob/main/Using%20Machine%20Learning%20to%20Detect%20Insincerity%20in%20Online%20Forums/207%20Final%20Presentation%20-%20Section%203%20-%20Jonathan%2C%20Marisa%2C%20Dylan.pdf)
 2. [Code](https://github.com/jonathanhorx/portfolio/blob/main/Using%20Machine%20Learning%20to%20Detect%20Insincerity%20in%20Online%20Forums/final_project.ipynb)
 
 
